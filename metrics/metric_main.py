@@ -82,6 +82,18 @@ def report_metric(result_dict, run_dir=None, snapshot_pkl=None):
 # Primary metrics.
 
 @register_metric
+def ids_500(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    u_ids, p_ids = inception_discriminative_score.compute_ids(opts, max_real=500, num_gen=500)
+    return dict(u_ids=u_ids, p_ids=p_ids)
+
+@register_metric
+def fid500_full(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    fid = frechet_inception_distance.compute_fid(opts, max_real=500, num_gen=500)
+    return dict(fid500_full=fid)
+
+@register_metric
 def fid2993_full(opts):
     opts.dataset_kwargs.update(max_size=None, xflip=False)
     fid = frechet_inception_distance.compute_fid(opts, max_real=2993, num_gen=2993)

@@ -5,6 +5,8 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
+import sys 
+sys.path.append("..") 
 
 import cv2
 import os
@@ -15,6 +17,7 @@ import json
 import torch
 import dnnlib
 import random
+from IPython import embed
 
 try:
     import pyspng
@@ -274,9 +277,126 @@ class ImageFolderMaskDataset(Dataset):
         return image.copy(), mask, self.get_label(idx)
 
 
+class TensorDataset(Dataset):
+    def __init__(self,
+        path,                   # Path to directory or zip.
+        resolution      = None, # Ensure specific resolution, None = highest available.
+        hole_range=[0,1],
+        **super_kwargs,         # Additional arguments for the Dataset base class.
+    ):
+        self._path = path
+        self._zipfile = None
+        self._hole_range = hole_range
+
+        if self._file_ext(self._path) == '.pt':
+            self._type = 'pt'
+            self._pt = torch.load(self._path)
+        else:
+            raise IOError('Path must point to pt file')
+
+        '''
+        PIL.Image.init()
+        self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+        if len(self._image_fnames) == 0:
+            raise IOError('No image files found in the specified path')
+        '''
+
+        self._pt = self._pt.unsqueeze(1)
+        raw_shape = self._pt.shape
+        if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
+            raise IOError('Image files do not match the specified resolution')
+
+        name = os.path.splitext(os.path.basename(self._path))[0]
+        super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
+
+    @staticmethod
+    def _file_ext(fname):
+        return os.path.splitext(fname)[1].lower()
+
+    def _get_zipfile(self):
+        assert self._type == 'zip'
+        if self._zipfile is None:
+            self._zipfile = zipfile.ZipFile(self._path)
+        return self._zipfile
+
+    def _open_file(self, fname):
+        if self._type == 'dir':
+            return open(os.path.join(self._path, fname), 'rb')
+        if self._type == 'zip':
+            return self._get_zipfile().open(fname, 'r')
+        return None
+
+    def close(self):
+        try:
+            if self._zipfile is not None:
+                self._zipfile.close()
+        finally:
+            self._zipfile = None
+
+    def __getstate__(self):
+        return dict(super().__getstate__(), _zipfile=None)
+
+    def _load_raw_image(self, raw_idx):
+        fname = self._image_fnames[raw_idx]
+        with self._open_file(fname) as f:
+            if pyspng is not None and self._file_ext(fname) == '.png':
+                image = pyspng.load(f.read())
+            else:
+                image = np.array(PIL.Image.open(f))
+        if image.ndim == 2:
+            image = image[:, :, np.newaxis] # HW => HWC
+
+        # for grayscale image
+        if image.shape[2] == 1:
+            image = np.repeat(image, 3, axis=2)
+
+        # restricted to 512x512
+        res = 512
+        H, W, C = image.shape
+        if H < res or W < res:
+            top = 0
+            bottom = max(0, res - H)
+            left = 0
+            right = max(0, res - W)
+            image = cv2.copyMakeBorder(image, top, bottom, left, right, cv2.BORDER_REFLECT)
+        H, W, C = image.shape
+        h = random.randint(0, H - res)
+        w = random.randint(0, W - res)
+        image = image[h:h+res, w:w+res, :]
+
+        image = np.ascontiguousarray(image.transpose(2, 0, 1)) # HWC => CHW
+
+        return image
+
+    def _load_raw_labels(self):
+        return None
+
+    def __getitem__(self, idx):
+        patch = self._pt[idx]
+
+        assert list(patch.shape) == self.image_shape
+        mask = RandomMask(patch.shape[-1], hole_range=self._hole_range)  # hole as 0, reserved as 1
+        return patch, mask, self.get_label(idx)
+
+
 if __name__ == '__main__':
     res = 512
-    dpath = '/data/liwenbo/datasets/Places365/standard/val_large'
+    # dpath = '/data/liwenbo/datasets/Places365/standard/val_large'
+    dpath = '/u/dingqian/some/MAT/data/patches_train.pt'
+    D = TensorDataset(path=dpath)
+    print(D.__len__())
+    
+    for i in range(D.__len__()):
+        print(i)
+        embed()
+        a, b, c = D.__getitem__(i)
+        if a.shape != (3, 512, 512):
+            print(i, a.shape)
+        
+        break
+    
+
+    dpath = '/Tmp/images_mat/train/images'
     D = ImageFolderMaskDataset(path=dpath)
     print(D.__len__())
     for i in range(D.__len__()):
@@ -284,3 +404,5 @@ if __name__ == '__main__':
         a, b, c = D.__getitem__(i)
         if a.shape != (3, 512, 512):
             print(i, a.shape)
+        embed()
+        break

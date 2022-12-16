@@ -24,6 +24,8 @@ from torch_utils.ops import grid_sample_gradfix
 import legacy
 from metrics import metric_main
 
+from IPython import embed
+
 #----------------------------------------------------------------------------
 
 def setup_snapshot_image_grid(training_set, random_seed=0):
@@ -170,8 +172,10 @@ def training_loop(
         img_in = torch.empty([batch_gpu, training_set.num_channels, training_set.resolution, training_set.resolution], device=device)
         mask_in = torch.empty([batch_gpu, 1, training_set.resolution, training_set.resolution], device=device)
         img = misc.print_module_summary(G, [img_in, mask_in, z, c])
+
         # D
-        img_stg1 = torch.empty([batch_gpu, 3, training_set.resolution, training_set.resolution], device=device)
+        # img_stg1 = torch.empty([batch_gpu, 3, training_set.resolution, training_set.resolution], device=device)
+        img_stg1 = torch.empty([batch_gpu, 1, training_set.resolution, training_set.resolution], device=device)
         misc.print_module_summary(D, [img, mask_in, img_stg1, c])
 
     # Setup augmentation.
@@ -251,14 +255,15 @@ def training_loop(
     if rank == 0:
         print('Exporting sample images...')
         grid_size, images, masks, labels = setup_snapshot_image_grid(training_set=val_set)
-        save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0, 255], grid_size=grid_size)
+        save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[-2, 2], grid_size=grid_size)
         # adaptation to inpainting config
         save_image_grid(masks, os.path.join(run_dir, 'masks.png'), drange=[0, 1], grid_size=grid_size)
         # --------------------
         grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
         grid_c = torch.from_numpy(labels).to(device).split(batch_gpu)
         # adaptation to inpainting config
-        grid_img = (torch.from_numpy(images).to(device) / 127.5 - 1).split(batch_gpu)  # [-1, 1]
+        # grid_img = (torch.from_numpy(images).to(device) / 127.5 - 1).split(batch_gpu)  # [-1, 1]
+        grid_img = (torch.from_numpy(images).to(device)).split(batch_gpu)  # [-1, 1]
         grid_mask = torch.from_numpy(masks).to(device).split(batch_gpu)  # {0, 1}
         images = torch.cat([G_ema(img_in, mask_in, z, c, noise_mode='const').cpu() \
                             for img_in, mask_in, z, c in zip(grid_img, grid_mask, grid_z, grid_c)]).numpy()
@@ -297,7 +302,8 @@ def training_loop(
         # Fetch training data.
         with torch.autograd.profiler.record_function('data_fetch'):
             phase_real_img, phase_mask, phase_real_c = next(training_set_iterator)
-            phase_real_img = (phase_real_img.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
+            # phase_real_img = (phase_real_img.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
+            phase_real_img = (phase_real_img.to(device).to(torch.float32)).split(batch_gpu)
             # adaptation to inpainting config
             phase_mask = phase_mask.to(device).to(torch.float32).split(batch_gpu)
             # --------------------

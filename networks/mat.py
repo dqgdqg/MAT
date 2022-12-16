@@ -13,6 +13,7 @@ from torch_utils import misc
 from torch_utils import persistence
 from networks.basic_module import FullyConnectedLayer, Conv2dLayer, MappingNet, MinibatchStdLayer, DisFromRGB, DisBlock, StyleConv, ToRGB, get_style_code
 
+from IPython import embed
 
 @misc.profiled_function
 def nf(stage, channel_base=32768, channel_decay=1.0, channel_max=512):
@@ -976,18 +977,33 @@ class Discriminator(torch.nn.Module):
 if __name__ == '__main__':
     device = torch.device('cuda:0')
     batch = 1
-    res = 512
-    G = Generator(z_dim=512, c_dim=0, w_dim=512, img_resolution=512, img_channels=3).to(device)
+    res = 128
+    G = Generator(z_dim=res, c_dim=0, w_dim=res, img_resolution=res, img_channels=3).to(device)
     D = Discriminator(c_dim=0, img_resolution=res, img_channels=3).to(device)
     img = torch.randn(batch, 3, res, res).to(device)
     mask = torch.randn(batch, 1, res, res).to(device)
-    z = torch.randn(batch, 512).to(device)
+    z = torch.randn(batch, res).to(device)
     G.eval()
 
     # def count(block):
     #     return sum(p.numel() for p in block.parameters()) / 10 ** 6
     # print('Generator', count(G))
     # print('discriminator', count(D))
+
+    with torch.no_grad():
+        img, img_stg1 = G(img, mask, z, None, return_stg1=True)
+    print('output of G:', img.shape, img_stg1.shape)
+    score, score_stg1 = D(img, mask, img_stg1, None)
+    print('output of D:', score.shape, score_stg1.shape)
+
+    embed()
+    ###  For 128 with 1 channel
+    G = Generator(z_dim=res, c_dim=0, w_dim=res, img_resolution=res, img_channels=1).to(device)
+    D = Discriminator(c_dim=0, img_resolution=res, img_channels=1).to(device)
+    img = torch.randn(batch, 1, res, res).to(device)
+    mask = torch.randn(batch, 1, res, res).to(device)
+    z = torch.randn(batch, res).to(device)
+    G.eval()
 
     with torch.no_grad():
         img, img_stg1 = G(img, mask, z, None, return_stg1=True)
