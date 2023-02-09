@@ -27,6 +27,10 @@ from datasets.mask_generator_512 import RandomMask
 from networks.mat import Generator
 import matplotlib.pyplot as plt
 
+import ot
+import scipy.stats
+from sklearn.metrics import roc_auc_score
+
 from IPython import embed
 
 def num_range(s: str) -> List[int]:
@@ -159,7 +163,8 @@ def generate_images(
 @click.command()
 @click.pass_context
 @click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
-@click.option('--dpath', help='the path of the input image', required=True)
+@click.option('--dpath', help='the path of the input tensors', required=True)
+@click.option('--ppath', help='the path of the picks', required=True)
 @click.option('--resolution', type=int, help='resolution of input image', default=512, show_default=True)
 @click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
 @click.option('--noise-mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), default='const', show_default=True)
@@ -168,6 +173,7 @@ def generate_tensors(
     ctx: click.Context,
     network_pkl: str,
     dpath: str, # Data path
+    ppath: str,
     # mpath: Optional[str], # Mask Path - No need
     resolution: int,
     truncation_psi: float,
@@ -213,6 +219,11 @@ def generate_tensors(
     tensors = torch.load(dpath)
     tensors = tensors.unsqueeze(1) # N, 1, 128, 128
 
+    print(f'Loading picks from: {ppath}')
+    # img_list = sorted(glob.glob(dpath + '/*.png') + glob.glob(dpath + '/*.jpg'))
+    picks = torch.load(ppath)
+    picks = picks.unsqueeze(1) # N, 1, 128, 128
+
     print(f'Loading networks from: {network_pkl}')
     device = torch.device('cuda')
     with dnnlib.util.open_url(network_pkl) as f:
@@ -251,11 +262,22 @@ def generate_tensors(
 
     mask_middle = mask_middle.unsqueeze(0).unsqueeze(0).to(device)
     mask_right = mask_right.unsqueeze(0).unsqueeze(0).to(device)
+
+    # 
+
+    diff_list = []
+    diff_abs_list = []
+    diff_emd_list = []
+    sum_list = []
+
+    has_pick_list = []
     
     with torch.no_grad():
         for i, tensor in enumerate(tensors):
+            pick = picks[i]
             print(f'Prcessing: {i}')
             tensor = tensor.unsqueeze(0).to(device)
+            has_pick = (pick.sum() > 0).item()
 
             #### Middle 
             z = torch.from_numpy(np.random.randn(1, G.z_dim)).to(device)
@@ -266,6 +288,8 @@ def generate_tensors(
 
             numpy_to_image(input_middle, os.path.join(outdir, 'input_middle_{}.png'.format(i)))
             numpy_to_image(output_middle, os.path.join(outdir, 'output_middle_{}.png'.format(i)))
+            numpy_to_image((output_middle-input_middle), os.path.join(outdir, 'diff_middle_{}.png'.format(i)))
+            
 
 
             #### Right 
@@ -277,6 +301,29 @@ def generate_tensors(
 
             numpy_to_image(input_right, os.path.join(outdir, 'input_right_{}.png'.format(i)))
             numpy_to_image(output_right, os.path.join(outdir, 'output_right_{}.png'.format(i)))
+            numpy_to_image((output_right-input_right), os.path.join(outdir, 'diff_right_{}.png'.format(i)))
+
+            mask_right_invert = (1 - mask_right).squeeze().cpu().numpy()
+            
+            diff = (output_right - input_right).sum()
+            diff_abs = (np.abs(output_right) - np.abs(input_right)).sum()
+            diff_emd = scipy.stats.wasserstein_distance(input_right.flatten(), output_right.flatten())
+            summ = (input_right * mask_right_invert).sum()
+
+            diff_list.append(diff)
+            diff_abs_list.append(diff_abs)
+            diff_emd_list.append(diff_emd)
+            sum_list.append(summ)
+            has_pick_list.append(has_pick)
+
+    auc_diff = roc_auc_score(has_pick_list, diff_list)
+    auc_diff_abs = roc_auc_score(has_pick_list, diff_abs_list)
+    auc_emd = roc_auc_score(has_pick_list, diff_emd_list)
+    auc_sum = roc_auc_score(has_pick_list, sum_list)
+
+    print('AUC_DIFF: {}\nAUC_DIFF_ABS: {}\nAUC_EMD: {}\nAUC_SUM: {}'.format(auc_diff, auc_diff_abs, auc_emd, auc_sum))
+    # roc_auc_score(has_pick_list, diff_list)
+    
 
 
 
