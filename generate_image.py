@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 
 import ot
 import scipy.stats
+import scipy.spatial
 from sklearn.metrics import roc_auc_score
 
 from IPython import embed
@@ -160,11 +161,63 @@ def generate_images(
             output = output[0].cpu().numpy()
             PIL.Image.fromarray(output, 'RGB').save(f'{outdir}/{iname}')
 
+def map_emd(a, b):
+    return scipy.stats.wasserstein_distance(a.flatten(), b.flatten())
+
+def sliced_emd(a, b, slice_size=32, step_size=16):
+    a_ts = torch.tensor(a)
+    b_ts = torch.tensor(b)
+
+    a_sliced = a_ts.unfold(0, slice_size, step_size).unfold(1, slice_size, step_size).flatten(0,1)
+    b_sliced = b_ts.unfold(0, slice_size, step_size).unfold(1, slice_size, step_size).flatten(0,1)
+
+    emd_list = list(map(map_emd, a_sliced, b_sliced))
+    emd = sum(emd_list)
+
+    return emd
+
+def kl(a, b):
+    a_norm = scipy.special.softmax(a.flatten())
+    b_norm = scipy.special.softmax(b.flatten())
+
+    ret = 0.5 * (scipy.stats.entropy(a_norm.flatten(), b_norm.flatten()) + scipy.stats.entropy(b_norm.flatten(), a_norm.flatten()))
+    return ret
+
+def js(a, b):
+    a_norm = scipy.special.softmax(a.flatten())
+    b_norm = scipy.special.softmax(b.flatten())
+
+    ret = scipy.spatial.distance.jensenshannon(a_norm.flatten(), b_norm.flatten())
+    return ret
+
+def hist_kl(a, b):
+    a_clip = np.clip(a, -2, 2)
+    b_clip = np.clip(b, -2, 2)
+
+    a_hist_prob = np.histogram(a_clip, 10)[0] / np.histogram(a_clip, 10)[0].sum()
+    b_hist_prob = np.histogram(b_clip, 10)[0] / np.histogram(b_clip, 10)[0].sum()
+    
+    ret = 0.5 * (scipy.stats.entropy(a_hist_prob, b_hist_prob) + scipy.stats.entropy(b_hist_prob, a_hist_prob))
+    return ret
+
+def hist_js(a, b):
+    a_clip = np.clip(a, -2, 2)
+    b_clip = np.clip(b, -2, 2)
+
+    a_hist_prob = np.histogram(a_clip, 10)[0] / np.histogram(a_clip, 10)[0].sum()
+    b_hist_prob = np.histogram(b_clip, 10)[0] / np.histogram(b_clip, 10)[0].sum()
+    
+    ret = scipy.spatial.distance.jensenshannon(a_hist_prob, b_hist_prob)
+    return ret
+
+
 @click.command()
 @click.pass_context
 @click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
 @click.option('--dpath', help='the path of the input tensors', required=True)
 @click.option('--ppath', help='the path of the picks', required=True)
+@click.option('--ipath', help='the path of the index', required=True)
+@click.option('--mpath', help='the path of the meta', required=True)
 @click.option('--resolution', type=int, help='resolution of input image', default=512, show_default=True)
 @click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
 @click.option('--noise-mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), default='const', show_default=True)
@@ -174,6 +227,8 @@ def generate_tensors(
     network_pkl: str,
     dpath: str, # Data path
     ppath: str,
+    ipath: str,
+    mpath: str,
     # mpath: Optional[str], # Mask Path - No need
     resolution: int,
     truncation_psi: float,
@@ -220,9 +275,14 @@ def generate_tensors(
     tensors = tensors.unsqueeze(1) # N, 1, 128, 128
 
     print(f'Loading picks from: {ppath}')
-    # img_list = sorted(glob.glob(dpath + '/*.png') + glob.glob(dpath + '/*.jpg'))
     picks = torch.load(ppath)
     picks = picks.unsqueeze(1) # N, 1, 128, 128
+
+    print(f'Loading indices_start from: {ipath}')
+    indices_start = np.load(ipath, allow_pickle=True)
+
+    print(f'Loading metas from: {mpath}') # [{'file': 'xxx'}]
+    metas = np.load(mpath, allow_pickle=True)
 
     print(f'Loading networks from: {network_pkl}')
     device = torch.device('cuda')
@@ -268,9 +328,19 @@ def generate_tensors(
     diff_list = []
     diff_abs_list = []
     diff_emd_list = []
+    diff_sliced_emd_list = []
+
+    diff_kl_list = []
+    diff_js_list = []
+    diff_hist_kl_list = []
+    diff_hist_js_list = []
+
     sum_list = []
 
     has_pick_list = []
+
+    output_right_list = []
+    output_middle_list = []
     
     with torch.no_grad():
         for i, tensor in enumerate(tensors):
@@ -291,7 +361,6 @@ def generate_tensors(
             numpy_to_image((output_middle-input_middle), os.path.join(outdir, 'diff_middle_{}.png'.format(i)))
             
 
-
             #### Right 
             z = torch.from_numpy(np.random.randn(1, G.z_dim)).to(device)
             output_right = G(tensor, mask_right, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
@@ -303,27 +372,56 @@ def generate_tensors(
             numpy_to_image(output_right, os.path.join(outdir, 'output_right_{}.png'.format(i)))
             numpy_to_image((output_right-input_right), os.path.join(outdir, 'diff_right_{}.png'.format(i)))
 
+            #### Calculate metrics
+
             mask_right_invert = (1 - mask_right).squeeze().cpu().numpy()
             
             diff = (output_right - input_right).sum()
             diff_abs = (np.abs(output_right) - np.abs(input_right)).sum()
             diff_emd = scipy.stats.wasserstein_distance(input_right.flatten(), output_right.flatten())
+            diff_sliced_emd = sliced_emd(input_right, output_right, 16, 8)
+
+            diff_kl = kl(input_right, output_right)
+            diff_js = js(input_right, output_right)
+            diff_hist_kl = hist_kl(input_right, output_right)
+            diff_hist_js = hist_js(input_right, output_right)
+
             summ = (input_right * mask_right_invert).sum()
 
             diff_list.append(diff)
             diff_abs_list.append(diff_abs)
             diff_emd_list.append(diff_emd)
+            diff_sliced_emd_list.append(diff_sliced_emd)
+
+            diff_kl_list.append(diff_kl)
+            diff_js_list.append(diff_js)
+            diff_hist_kl_list.append(diff_hist_kl)
+            diff_hist_js_list.append(diff_hist_js)
+
             sum_list.append(summ)
+
             has_pick_list.append(has_pick)
+
+            output_right_list.append(output_right)
+            output_middle_list.append(output_middle)
 
     auc_diff = roc_auc_score(has_pick_list, diff_list)
     auc_diff_abs = roc_auc_score(has_pick_list, diff_abs_list)
     auc_emd = roc_auc_score(has_pick_list, diff_emd_list)
     auc_sum = roc_auc_score(has_pick_list, sum_list)
+    auc_sliced_emd = roc_auc_score(has_pick_list, diff_sliced_emd_list)
 
-    print('AUC_DIFF: {}\nAUC_DIFF_ABS: {}\nAUC_EMD: {}\nAUC_SUM: {}'.format(auc_diff, auc_diff_abs, auc_emd, auc_sum))
+    auc_kl = roc_auc_score(has_pick_list, diff_kl_list)
+    auc_js = roc_auc_score(has_pick_list, diff_js_list)
+
+    auc_hist_kl = roc_auc_score(has_pick_list, np.nan_to_num(diff_hist_kl_list))
+    auc_hist_js = roc_auc_score(has_pick_list, np.nan_to_num(diff_hist_js_list))
+
+    print('AUC_DIFF: {}\nAUC_DIFF_ABS: {}\nAUC_EMD: {}\nAUC_SUM: {}\nAUC_SLICED_EMD: {}'.format(auc_diff, auc_diff_abs, auc_emd, auc_sum, auc_sliced_emd))
+    print('AUC_KL: {}\nAUC_JS: {}\nAUC_HIST_KL: {}\nAUC_HIST_JS: {}'.format(auc_kl, auc_js, auc_hist_kl, auc_hist_js))
     # roc_auc_score(has_pick_list, diff_list)
     
+    embed()
 
 
 
