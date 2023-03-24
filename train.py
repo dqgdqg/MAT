@@ -73,6 +73,7 @@ def setup_training_loop_kwargs(
     # Transfer learning.
     resume     = None, # Load previous network: 'noresume' (default), 'ffhq256', 'ffhq512', 'ffhq1024', 'celebahq256', 'lsundog256', <file>, <url>
     freezed    = None, # Freeze-D: <int>, default = 0 discriminator layers
+    finetune   = None, # Finetune: Bool, default = False
 
     # Performance options (not included in desc).
     fp32       = None, # Disable mixed-precision training: <bool>, default = False
@@ -407,6 +408,9 @@ def setup_training_loop_kwargs(
             raise UserError('--freezed must be non-negative')
         desc += f'-freezed{freezed:d}'
         args.D_kwargs.block_kwargs.freeze_layers = freezed
+    
+    if finetune is not None:
+        args.finetune = finetune
 
     # -------------------------------------------------
     # Performance options: fp32, nhwc, nobench, workers
@@ -468,6 +472,8 @@ def subprocess_fn(rank, args, temp_dir):
         custom_ops.verbosity = 'none'
 
     # Execute training loop.
+    if args.finetune == True:
+        training_loop.finetune_loop(rank=rank, **args)
     training_loop.training_loop(rank=rank, **args)
 
 #----------------------------------------------------------------------------
@@ -529,6 +535,7 @@ class CommaSeparatedList(click.ParamType):
 # Transfer learning.
 @click.option('--resume', help='Resume training [default: noresume]', metavar='PKL')
 @click.option('--freezed', help='Freeze-D [default: 0 layers]', type=int, metavar='INT')
+@click.option('--finetune', help='Finetune on classification task [default: False]', type=bool, metavar='BOOL')
 
 # Performance options.
 @click.option('--fp32', help='Disable mixed-precision training', type=bool, metavar='BOOL')

@@ -146,7 +146,7 @@ class Qiang_Anomaly(Dataset):
     def __init__(self, setting='train', window_size=100, mask_ratio=0.1, test_mode=False, threshold_mode=False, is_abs=False):
         # points_per_sec = data_raw.shape[1] / total_time
         self.is_abs = is_abs
-        dir_path = './data/DAS/{}_npz'.format(setting)
+        dir_path = '/data/rech/dingqian/data_das/DAS/{}_npz'.format(setting)
         self.data_raw = self.load_data(dir_path) # nnn x [(1250 x time), meta]
 
         self.data = list(map(lambda x: Earthquake_Anomaly(

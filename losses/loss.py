@@ -63,11 +63,27 @@ class TwoStageLoss(Loss):
         return logits, logits_stg1
 
     def accumulate_gradients(self, phase, real_img, mask, real_c, gen_z, gen_c, sync, gain):
-        assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth']
+        assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth', 'Gfinetune']
+        do_Gfinetune = (phase in ['Gfinetune'])
         do_Gmain = (phase in ['Gmain', 'Gboth'])
         do_Dmain = (phase in ['Dmain', 'Dboth'])
         do_Gpl   = (phase in ['Greg', 'Gboth']) and (self.pl_weight != 0)
         do_Dr1   = (phase in ['Dreg', 'Dboth']) and (self.r1_gamma != 0)
+
+        # Gfinetune: Fintune on classification
+
+        if do_Gfinetune:
+            with torch.autograd.profiler.record_function('Gmain_forward'):
+                gen_img, _gen_ws, gen_img_stg1 = self.run_G(real_img, mask, gen_z, gen_c, sync=(sync and not do_Gpl)) # May get synced by Gpl.
+
+                # TODO:
+                training_stats.report('Loss/finetune/loss_s1', gen_img_stg1)
+                training_stats.report('Loss/finetune/loss', gen_img)
+                loss_Gfinetune = torch.mean(torch.abs(gen_img - real_img))
+
+            with torch.autograd.profiler.record_function('Gfinetune_backward'):
+                # loss_Gfinetune_all = loss_Gmain + loss_Gmain_stg1 + pcp_loss * self.pcp_ratio
+                loss_Gfinetune.mean().mul(gain).backward()
 
         # Gmain: Maximize logits for generated images.
         if do_Gmain:

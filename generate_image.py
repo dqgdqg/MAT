@@ -347,7 +347,9 @@ def generate_tensors(
             pick = picks[i]
             print(f'Prcessing: {i}')
             tensor = tensor.unsqueeze(0).to(device)
-            has_pick = (pick.sum() > 0).item()
+            mask_right_invert = (1 - mask_right).squeeze().cpu().numpy()
+
+            has_pick = ((pick * mask_right_invert).sum() > 0).item()
 
             #### Middle 
             z = torch.from_numpy(np.random.randn(1, G.z_dim)).to(device)
@@ -373,8 +375,6 @@ def generate_tensors(
             numpy_to_image((output_right-input_right), os.path.join(outdir, 'diff_right_{}.png'.format(i)))
 
             #### Calculate metrics
-
-            mask_right_invert = (1 - mask_right).squeeze().cpu().numpy()
             
             diff = (output_right - input_right).sum()
             diff_abs = (np.abs(output_right) - np.abs(input_right)).sum()
@@ -422,6 +422,12 @@ def generate_tensors(
     # roc_auc_score(has_pick_list, diff_list)
     
     embed()
+
+    with open('/data/rech/dingqian/data_das/output_right_10.npy', 'wb') as f:
+        np.save(f, output_right_list)
+    with open('/data/rech/dingqian/data_das/output_middle_10.npy', 'wb') as f:
+        np.save(f, output_middle_list)
+
 
 
 

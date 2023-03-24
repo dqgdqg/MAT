@@ -996,7 +996,6 @@ if __name__ == '__main__':
     score, score_stg1 = D(img, mask, img_stg1, None)
     print('output of D:', score.shape, score_stg1.shape)
 
-    embed()
     ###  For 128 with 1 channel
     G = Generator(z_dim=res, c_dim=0, w_dim=res, img_resolution=res, img_channels=1).to(device)
     D = Discriminator(c_dim=0, img_resolution=res, img_channels=1).to(device)
