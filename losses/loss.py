@@ -62,7 +62,7 @@ class TwoStageLoss(Loss):
             logits, logits_stg1 = self.D(img, mask, img_stg1, c)
         return logits, logits_stg1
 
-    def accumulate_gradients(self, phase, real_img, mask, real_c, gen_z, gen_c, sync, gain):
+    def accumulate_gradients(self, phase, real_img, mask, real_c, real_pick, gen_z, gen_c, sync, gain):
         assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth', 'Gfinetune']
         do_Gfinetune = (phase in ['Gfinetune'])
         do_Gmain = (phase in ['Gmain', 'Gboth'])
@@ -73,17 +73,39 @@ class TwoStageLoss(Loss):
         # Gfinetune: Fintune on classification
 
         if do_Gfinetune:
-            with torch.autograd.profiler.record_function('Gmain_forward'):
+            with torch.autograd.profiler.record_function('Gfinetune_forward'):
+                mask = torch.zeros_like(mask)
                 gen_img, _gen_ws, gen_img_stg1 = self.run_G(real_img, mask, gen_z, gen_c, sync=(sync and not do_Gpl)) # May get synced by Gpl.
 
+
+                '''print(gen_img.shape, real_img.shape, real_pick.shape, gen_img_stg1.shape, mask.shape)
+                ### 1,1,128,128 / 1,128,128 / 1,1,128,128 / 1,1,128,128 Note mask is tensor.float
+                print('gen_img:', gen_img)
+                print('real_img:' , real_img)
+                print('real_pick:', real_pick)
+                print('gen_img_stg_1: ', gen_img_stg1)
+                print('mask: ', mask)'''
+
+
                 # TODO:
-                training_stats.report('Loss/finetune/loss_s1', gen_img_stg1)
-                training_stats.report('Loss/finetune/loss', gen_img)
-                loss_Gfinetune = torch.mean(torch.abs(gen_img - real_img))
+                # Add Sigmoid to gen_img/gen_img_stg1, calculate BinaryClassificationloss
+                loss_Gfinetune = torch.nn.BCEWithLogitsLoss().cuda()(gen_img, real_pick)
+                loss_Gfinetune_s1 = torch.nn.BCEWithLogitsLoss().cuda()(gen_img_stg1, real_pick)
+
+
+                # pred_pick = torch.sigmoid(gen_img) > 0.5
+                # pred_pick_s1 = torch.sigmoid(gen_img_stg1) > 0.5
+                # acc = (pred_pick == real_pick.bool()).sum() / pred_pick.size()
+                # acc_s1 = (pred_pick_s1 == real_pick.bool()).sum() / pred_pick_s1.size()
+
+                training_stats.report('Loss/finetune/loss_s1', loss_Gfinetune_s1)
+                training_stats.report('Loss/finetune/loss', loss_Gfinetune)
+                # training_stats.report('Loss/finetune/acc_s1', acc_s1)
+                # training_stats.report('Loss/finetune/acc', acc)
 
             with torch.autograd.profiler.record_function('Gfinetune_backward'):
-                # loss_Gfinetune_all = loss_Gmain + loss_Gmain_stg1 + pcp_loss * self.pcp_ratio
-                loss_Gfinetune.mean().mul(gain).backward()
+                loss_Gfinetune_all = loss_Gfinetune + loss_Gfinetune_s1
+                loss_Gfinetune_all.mean().mul(gain).backward()
 
         # Gmain: Maximize logits for generated images.
         if do_Gmain:

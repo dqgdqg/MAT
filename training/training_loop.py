@@ -657,6 +657,7 @@ def finetune_loop(
     if rank == 0:
         print('Exporting sample images...')
         grid_size, images, masks, labels = setup_snapshot_image_grid(training_set=val_set)
+        masks = np.zeros_like(masks)
         save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[-2, 2], grid_size=grid_size)
         # adaptation to inpainting config
         save_image_grid(masks, os.path.join(run_dir, 'masks.png'), drange=[0, 1], grid_size=grid_size)
@@ -703,12 +704,14 @@ def finetune_loop(
 
         # Fetch training data.
         with torch.autograd.profiler.record_function('data_fetch'):
-            phase_real_img, phase_mask, phase_real_c = next(training_set_iterator)
+            phase_real_img, phase_mask, phase_real_pick = next(training_set_iterator)
             # phase_real_img = (phase_real_img.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
             phase_real_img = (phase_real_img.to(device).to(torch.float32)).split(batch_gpu)
             # adaptation to inpainting config
             phase_mask = phase_mask.to(device).to(torch.float32).split(batch_gpu)
+            phase_real_pick = phase_real_pick.to(device).to(torch.float32).split(batch_gpu)
             # --------------------
+            phase_real_c = torch.tensor([]) # Do Not Need Real-C
             phase_real_c = phase_real_c.to(device).split(batch_gpu)
             all_gen_z = torch.randn([len(phases) * batch_size, G.z_dim], device=device)
             all_gen_z = [phase_gen_z.split(batch_gpu) for phase_gen_z in all_gen_z.split(batch_size)]
@@ -728,10 +731,10 @@ def finetune_loop(
             phase.module.requires_grad_(True)
 
             # Accumulate gradients over multiple rounds.
-            for round_idx, (real_img, mask, real_c, gen_z, gen_c) in enumerate(zip(phase_real_img, phase_mask, phase_real_c, phase_gen_z, phase_gen_c)):
+            for round_idx, (real_img, mask, real_c, real_pick, gen_z, gen_c) in enumerate(zip(phase_real_img, phase_mask, phase_real_c, phase_real_pick, phase_gen_z, phase_gen_c)):
                 sync = (round_idx == batch_size // (batch_gpu * num_gpus) - 1)
                 gain = phase.interval
-                loss.accumulate_gradients(phase=phase.name, real_img=real_img, mask=mask, real_c=real_c, gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain)
+                loss.accumulate_gradients(phase=phase.name, real_img=real_img, mask=mask, real_c=real_c, real_pick=real_pick, gen_z=gen_z, gen_c=gen_c, sync=sync, gain=gain)
 
             # Update weights.
             phase.module.requires_grad_(False)

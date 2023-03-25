@@ -291,6 +291,10 @@ class TensorDataset(Dataset):
         if self._file_ext(self._path) == '.pt':
             self._type = 'pt'
             self._pt = torch.load(self._path)
+
+            picks_path = self._path.replace('patches', 'picks')
+            self._picks = torch.load(picks_path)
+
         else:
             raise IOError('Path must point to pt file')
 
@@ -302,6 +306,7 @@ class TensorDataset(Dataset):
         '''
 
         self._pt = self._pt.unsqueeze(1)
+        self._picks = self._picks.unsqueeze(1)
         raw_shape = self._pt.shape
         if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
             raise IOError('Image files do not match the specified resolution')
@@ -373,10 +378,11 @@ class TensorDataset(Dataset):
 
     def __getitem__(self, idx):
         patch = self._pt[idx]
+        pick = self._picks[idx]
 
         assert list(patch.shape) == self.image_shape
         mask = RandomMask(patch.shape[-1], hole_range=self._hole_range)  # hole as 0, reserved as 1
-        return patch, mask, self.get_label(idx)
+        return patch, mask, pick
 
 
 if __name__ == '__main__':
@@ -390,8 +396,7 @@ if __name__ == '__main__':
         print(i)
         embed()
         a, b, c = D.__getitem__(i)
-        if a.shape != (3, 512, 512):
-            print(i, a.shape)
+        print(i, a.shape)
         
         break
     
