@@ -309,7 +309,7 @@ def generate_tensors(
 
     if resolution != 512:   
         noise_mode = 'random'
-
+        
     mask_ratio = 0.2
     mask_middle = torch.ones((resolution, resolution))
     left = int(resolution * (0.5 - mask_ratio * 0.5))

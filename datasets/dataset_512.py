@@ -287,6 +287,7 @@ class TensorDataset(Dataset):
         self._path = path
         self._zipfile = None
         self._hole_range = hole_range
+        self.finetune = False
 
         if self._file_ext(self._path) == '.pt':
             self._type = 'pt'
@@ -382,7 +383,11 @@ class TensorDataset(Dataset):
 
         assert list(patch.shape) == self.image_shape
         mask = RandomMask(patch.shape[-1], hole_range=self._hole_range)  # hole as 0, reserved as 1
-        return patch, mask, pick
+        
+        if self.finetune == True:
+            return patch, mask, pick
+        else:
+            return patch, mask, self.get_label(idx)
 
 
 if __name__ == '__main__':

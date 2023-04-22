@@ -32,6 +32,7 @@ import scipy.stats
 import scipy.spatial
 from sklearn.metrics import roc_auc_score
 
+from six.moves import cPickle as pickle
 from IPython import embed
 
 def num_range(s: str) -> List[int]:
@@ -210,6 +211,22 @@ def hist_js(a, b):
     ret = scipy.spatial.distance.jensenshannon(a_hist_prob, b_hist_prob)
     return ret
 
+features_in_hook = []
+features_out_hook = []
+
+def hook(module, fea_in, fea_out):
+    features_in_hook.append(fea_in)
+    return None
+
+def tensor_to_numpy(features):
+    res = []
+    for tensor in features:
+        if tensor is None:
+            continue
+        tensor = tensor.cpu().numpy()
+        res.append(tensor)
+    
+    return res
 
 @click.command()
 @click.pass_context
@@ -294,6 +311,17 @@ def generate_tensors(
     G = dnnlib.util.construct_class_by_name(**G_kwargs).to(device).eval().requires_grad_(False)
     copy_params_and_buffers(G_saved, G, require_all=True)
 
+
+    
+    
+    layer_name_s1 = 'synthesis.first_stage.dec_conv.0'
+    # layer_name = 'synthesis.dec.Dec_128x128'
+
+    for name, module in G.named_modules():
+        if name == layer_name_s1: #  or name == layer_name:
+            print(module)
+            module.register_forward_hook(hook=hook)
+
     os.makedirs(outdir, exist_ok=True)
 
     # no Labels.
@@ -311,122 +339,48 @@ def generate_tensors(
         noise_mode = 'random'
 
     mask_ratio = 0.2
-    mask_middle = torch.ones((resolution, resolution))
-    left = int(resolution * (0.5 - mask_ratio * 0.5))
-    right = int(resolution * (0.5 + mask_ratio * 0.5))
-    mask_middle[:, left:right] = 0.
+    mask = torch.ones((resolution, resolution))
+    mask = mask.unsqueeze(0).unsqueeze(0).to(device)
 
-    mask_right = torch.ones((resolution, resolution))
-    left = int(resolution * mask_ratio)
-    mask_right[:, -left:] = 0.
+    output_list = []
+    output_s1_list = []
 
-    mask_middle = mask_middle.unsqueeze(0).unsqueeze(0).to(device)
-    mask_right = mask_right.unsqueeze(0).unsqueeze(0).to(device)
-
-    # 
-
-    diff_list = []
-    diff_abs_list = []
-    diff_emd_list = []
-    diff_sliced_emd_list = []
-
-    diff_kl_list = []
-    diff_js_list = []
-    diff_hist_kl_list = []
-    diff_hist_js_list = []
-
-    sum_list = []
-
-    has_pick_list = []
-
-    output_right_list = []
-    output_middle_list = []
+    x_ft = []
+    style_ft = []
+    skip_ft = []
     
     with torch.no_grad():
         for i, tensor in enumerate(tensors):
             pick = picks[i]
+            has_pick = (pick.sum() > 0).item()
             print(f'Prcessing: {i}')
             tensor = tensor.unsqueeze(0).to(device)
-            mask_right_invert = (1 - mask_right).squeeze().cpu().numpy()
-
-            has_pick = ((pick * mask_right_invert).sum() > 0).item()
-
-            #### Middle 
-            z = torch.from_numpy(np.random.randn(1, G.z_dim)).to(device)
-            output_middle = G(tensor, mask_middle, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
-            output_middle = output_middle.squeeze().cpu().numpy()
-
-            input_middle = tensor.squeeze().cpu().numpy()
-
-            numpy_to_image(input_middle, os.path.join(outdir, 'input_middle_{}.png'.format(i)))
-            numpy_to_image(output_middle, os.path.join(outdir, 'output_middle_{}.png'.format(i)))
-            numpy_to_image((output_middle-input_middle), os.path.join(outdir, 'diff_middle_{}.png'.format(i)))
+            # mask_right_invert = (1 - mask_right).squeeze().cpu().numpy()
+            # has_pick = ((pick * mask_right_invert).sum() > 0).item()
             
-
             #### Right 
             z = torch.from_numpy(np.random.randn(1, G.z_dim)).to(device)
-            output_right = G(tensor, mask_right, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
-            output_right = output_right.squeeze().cpu().numpy()
+            output, output_s1 = G(tensor, mask, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode, return_stg1=True, finetune=True)
+            output = output.squeeze().cpu().numpy()
+            output_s1 = output_s1.squeeze().cpu().numpy()
 
-            input_right = tensor.squeeze().cpu().numpy()
+            output_list.append(output)
+            output_s1_list.append(output_s1)
 
-            numpy_to_image(input_right, os.path.join(outdir, 'input_right_{}.png'.format(i)))
-            numpy_to_image(output_right, os.path.join(outdir, 'output_right_{}.png'.format(i)))
-            numpy_to_image((output_right-input_right), os.path.join(outdir, 'diff_right_{}.png'.format(i)))
-
-            #### Calculate metrics
             
-            diff = (output_right - input_right).sum()
-            diff_abs = (np.abs(output_right) - np.abs(input_right)).sum()
-            diff_emd = scipy.stats.wasserstein_distance(input_right.flatten(), output_right.flatten())
-            diff_sliced_emd = sliced_emd(input_right, output_right, 16, 8)
+            if has_pick > 0:
+                x, style, skip = tensor_to_numpy(features_in_hook[-1]) # x, style, skip
+                x_ft.append(x)
+                style_ft.append(style)
+                skip_ft.append(skip)
+            features_in_hook[-1] = 0.
 
-            diff_kl = kl(input_right, output_right)
-            diff_js = js(input_right, output_right)
-            diff_hist_kl = hist_kl(input_right, output_right)
-            diff_hist_js = hist_js(input_right, output_right)
+    x_ft = np.concatenate(x_ft)
+    style_ft = np.concatenate(style_ft)
+    skip_ft = np.concatenate(skip_ft)
+    with open('/data/rech/dingqian/data_das/finetune_epoch_0_test.npy', 'wb') as f:
+        pickle.dump([x_ft, style_ft, skip_ft], f)
 
-            summ = (input_right * mask_right_invert).sum()
-
-            diff_list.append(diff)
-            diff_abs_list.append(diff_abs)
-            diff_emd_list.append(diff_emd)
-            diff_sliced_emd_list.append(diff_sliced_emd)
-
-            diff_kl_list.append(diff_kl)
-            diff_js_list.append(diff_js)
-            diff_hist_kl_list.append(diff_hist_kl)
-            diff_hist_js_list.append(diff_hist_js)
-
-            sum_list.append(summ)
-
-            has_pick_list.append(has_pick)
-
-            output_right_list.append(output_right)
-            output_middle_list.append(output_middle)
-
-    auc_diff = roc_auc_score(has_pick_list, diff_list)
-    auc_diff_abs = roc_auc_score(has_pick_list, diff_abs_list)
-    auc_emd = roc_auc_score(has_pick_list, diff_emd_list)
-    auc_sum = roc_auc_score(has_pick_list, sum_list)
-    auc_sliced_emd = roc_auc_score(has_pick_list, diff_sliced_emd_list)
-
-    auc_kl = roc_auc_score(has_pick_list, diff_kl_list)
-    auc_js = roc_auc_score(has_pick_list, diff_js_list)
-
-    auc_hist_kl = roc_auc_score(has_pick_list, np.nan_to_num(diff_hist_kl_list))
-    auc_hist_js = roc_auc_score(has_pick_list, np.nan_to_num(diff_hist_js_list))
-
-    print('AUC_DIFF: {}\nAUC_DIFF_ABS: {}\nAUC_EMD: {}\nAUC_SUM: {}\nAUC_SLICED_EMD: {}'.format(auc_diff, auc_diff_abs, auc_emd, auc_sum, auc_sliced_emd))
-    print('AUC_KL: {}\nAUC_JS: {}\nAUC_HIST_KL: {}\nAUC_HIST_JS: {}'.format(auc_kl, auc_js, auc_hist_kl, auc_hist_js))
-    # roc_auc_score(has_pick_list, diff_list)
-    
-    embed()
-
-    with open('/data/rech/dingqian/data_das/output_right_10.npy', 'wb') as f:
-        np.save(f, output_right_list)
-    with open('/data/rech/dingqian/data_das/output_middle_10.npy', 'wb') as f:
-        np.save(f, output_middle_list)
 
 
 

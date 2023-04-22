@@ -751,7 +751,7 @@ class FirstStage(nn.Module):
             res = res * 2
             self.dec_conv.append(DecStyleBlock(res, dim, dim, activation, style_dim, use_noise, demodulate, img_channels))
 
-    def forward(self, images_in, masks_in, ws, noise_mode='random'):
+    def forward(self, images_in, masks_in, ws, noise_mode='random', finetune=False):
         x = torch.cat([masks_in - 0.5, images_in * masks_in], dim=1)
 
         skips = []
@@ -791,7 +791,8 @@ class FirstStage(nn.Module):
             x, img = block(x, img, style, skips[len(self.dec_conv)-i-1], noise_mode=noise_mode)
 
         # ensemble
-        img = img * (1 - masks_in) + images_in * masks_in
+        if finetune == False:
+            img = img * (1 - masks_in) + images_in * masks_in
 
         return img
 
@@ -828,8 +829,8 @@ class SynthesisNet(nn.Module):
         style_dim = w_dim + nf(2) * 2
         self.dec = Decoder(resolution_log2, activation, style_dim, use_noise, demodulate, img_channels)
 
-    def forward(self, images_in, masks_in, ws, noise_mode='random', return_stg1=False):
-        out_stg1 = self.first_stage(images_in, masks_in, ws, noise_mode=noise_mode)
+    def forward(self, images_in, masks_in, ws, noise_mode='random', return_stg1=False, finetune=False):
+        out_stg1 = self.first_stage(images_in, masks_in, ws, noise_mode=noise_mode, finetune=finetune)
 
         # encoder
         x = images_in * masks_in + out_stg1 * (1 - masks_in)
@@ -888,15 +889,15 @@ class Generator(nn.Module):
                                   **mapping_kwargs)
 
     def forward(self, images_in, masks_in, z, c, truncation_psi=1, truncation_cutoff=None, skip_w_avg_update=False,
-                noise_mode='random', return_stg1=False):
+                noise_mode='random', return_stg1=False, finetune=False):
         ws = self.mapping(z, c, truncation_psi=truncation_psi, truncation_cutoff=truncation_cutoff,
                           skip_w_avg_update=skip_w_avg_update)
 
         if not return_stg1:
-            img = self.synthesis(images_in, masks_in, ws, noise_mode=noise_mode)
+            img = self.synthesis(images_in, masks_in, ws, noise_mode=noise_mode, finetune=finetune)
             return img
         else:
-            img, out_stg1 = self.synthesis(images_in, masks_in, ws, noise_mode=noise_mode, return_stg1=True)
+            img, out_stg1 = self.synthesis(images_in, masks_in, ws, noise_mode=noise_mode, return_stg1=True, finetune=finetune)
             return img, out_stg1
 
 
@@ -974,6 +975,26 @@ class Discriminator(torch.nn.Module):
         return x, x_stg1
 
 
+class Finetune(nn.Module):
+    def __init__(self, img_channels, img_resolution=128, dim=180, w_dim=512, use_noise=False, demodulate=True, activation='lrelu'):
+        super().__init__()
+        res = 64
+        style_dim = dim * 3
+
+        self.ft_conv = nn.ModuleList()
+        # 128 180 180 lrelu 540 False True 1
+
+        res = res * 2
+        self.ft_conv.append(DecStyleBlock(res, dim, dim, activation, style_dim, use_noise, demodulate, img_channels))
+
+    def forward(self, x, style, skip, noise_mode='random', finetune=False):
+
+        img = None
+        for i, block in enumerate(self.ft_conv):
+            x, img = block(x, img, style, skip, noise_mode=noise_mode)
+        
+        return x, img
+
 if __name__ == '__main__':
     device = torch.device('cuda:0')
     batch = 1
@@ -1009,3 +1030,19 @@ if __name__ == '__main__':
     print('output of G:', img.shape, img_stg1.shape)
     score, score_stg1 = D(img, mask, img_stg1, None)
     print('output of D:', score.shape, score_stg1.shape)
+
+    ### Test finetune
+
+    FNet = Finetune(img_channels=3, img_resolution=128, dim=180, w_dim=512, use_noise=False, demodulate=True, activation='lrelu').to(device)
+    # x, style, skip
+    x = torch.randn(batch, 180, 64, 64).to(device)
+    style = torch.randn(batch, 540).to(device)
+    skip = torch.randn(batch, 180, 128, 128).to(device)
+
+    FNet.eval
+    
+    with torch.no_grad():
+        x, img = FNet(x, style, skip)
+    
+    print('output of FNet:', x.shape, img.shape)
+
