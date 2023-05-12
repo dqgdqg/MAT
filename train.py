@@ -409,8 +409,7 @@ def setup_training_loop_kwargs(
         desc += f'-freezed{freezed:d}'
         args.D_kwargs.block_kwargs.freeze_layers = freezed
     
-    if finetune is not None:
-        args.finetune = finetune
+    args.finetune = finetune
 
     # -------------------------------------------------
     # Performance options: fp32, nhwc, nobench, workers

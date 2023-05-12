@@ -405,6 +405,11 @@ def generate_tensors(
             output_right_list.append(output_right)
             output_middle_list.append(output_middle)
 
+    with open('/data/rech/dingqian/data_das_ocean/output_right_10.npy', 'wb') as f:
+        np.save(f, output_right_list)
+    with open('/data/rech/dingqian/data_das_ocean/output_middle_10.npy', 'wb') as f:
+        np.save(f, output_middle_list)
+
     auc_diff = roc_auc_score(has_pick_list, diff_list)
     auc_diff_abs = roc_auc_score(has_pick_list, diff_abs_list)
     auc_emd = roc_auc_score(has_pick_list, diff_emd_list)
