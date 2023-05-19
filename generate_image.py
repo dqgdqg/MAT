@@ -27,7 +27,7 @@ from datasets.mask_generator_512 import RandomMask
 from networks.mat import Generator
 import matplotlib.pyplot as plt
 
-import ot
+# import ot
 import scipy.stats
 import scipy.spatial
 from sklearn.metrics import roc_auc_score
@@ -275,8 +275,8 @@ def generate_tensors(
     tensors = tensors.unsqueeze(1) # N, 1, 128, 128
 
     print(f'Loading picks from: {ppath}')
-    picks = torch.load(ppath)
-    picks = picks.unsqueeze(1) # N, 1, 128, 128
+    # picks = torch.load(ppath)
+    # picks = picks.unsqueeze(1) # N, 1, 128, 128
 
     print(f'Loading indices_start from: {ipath}')
     indices_start = np.load(ipath, allow_pickle=True)
@@ -344,23 +344,22 @@ def generate_tensors(
     
     with torch.no_grad():
         for i, tensor in enumerate(tensors):
-            pick = picks[i]
+            # pick = picks[i]
             print(f'Prcessing: {i}')
             tensor = tensor.unsqueeze(0).to(device)
-            mask_right_invert = (1 - mask_right).squeeze().cpu().numpy()
-
-            has_pick = ((pick * mask_right_invert).sum() > 0).item()
+            # mask_right_invert = (1 - mask_right).squeeze().cpu().numpy()
+            # has_pick = ((pick * mask_right_invert).sum() > 0).item()
 
             #### Middle 
-            z = torch.from_numpy(np.random.randn(1, G.z_dim)).to(device)
-            output_middle = G(tensor, mask_middle, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
-            output_middle = output_middle.squeeze().cpu().numpy()
+            # z = torch.from_numpy(np.random.randn(1, G.z_dim)).to(device)
+            # output_middle = G(tensor, mask_middle, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
+            # output_middle = output_middle.squeeze().cpu().numpy()
 
-            input_middle = tensor.squeeze().cpu().numpy()
+            # input_middle = tensor.squeeze().cpu().numpy()
 
-            numpy_to_image(input_middle, os.path.join(outdir, 'input_middle_{}.png'.format(i)))
-            numpy_to_image(output_middle, os.path.join(outdir, 'output_middle_{}.png'.format(i)))
-            numpy_to_image((output_middle-input_middle), os.path.join(outdir, 'diff_middle_{}.png'.format(i)))
+            # numpy_to_image(input_middle, os.path.join(outdir, 'input_middle_{}.png'.format(i)))
+            # numpy_to_image(output_middle, os.path.join(outdir, 'output_middle_{}.png'.format(i)))
+            # numpy_to_image((output_middle-input_middle), os.path.join(outdir, 'diff_middle_{}.png'.format(i)))
             
 
             #### Right 
@@ -376,56 +375,48 @@ def generate_tensors(
 
             #### Calculate metrics
             
-            diff = (output_right - input_right).sum()
-            diff_abs = (np.abs(output_right) - np.abs(input_right)).sum()
-            diff_emd = scipy.stats.wasserstein_distance(input_right.flatten(), output_right.flatten())
-            diff_sliced_emd = sliced_emd(input_right, output_right, 16, 8)
+            # diff = (output_right - input_right).sum()
+            # diff_abs = (np.abs(output_right) - np.abs(input_right)).sum()
+            # diff_emd = scipy.stats.wasserstein_distance(input_right.flatten(), output_right.flatten())
+            # diff_sliced_emd = sliced_emd(input_right, output_right, 16, 8)
 
-            diff_kl = kl(input_right, output_right)
-            diff_js = js(input_right, output_right)
-            diff_hist_kl = hist_kl(input_right, output_right)
-            diff_hist_js = hist_js(input_right, output_right)
+            # diff_kl = kl(input_right, output_right)
+            # diff_js = js(input_right, output_right)
+            # diff_hist_kl = hist_kl(input_right, output_right)
+            # diff_hist_js = hist_js(input_right, output_right)
 
-            summ = (input_right * mask_right_invert).sum()
+            # summ = (input_right * mask_right_invert).sum()
 
-            diff_list.append(diff)
-            diff_abs_list.append(diff_abs)
-            diff_emd_list.append(diff_emd)
-            diff_sliced_emd_list.append(diff_sliced_emd)
+            # diff_list.append(diff)
+            # diff_abs_list.append(diff_abs)
+            # diff_emd_list.append(diff_emd)
+            # diff_sliced_emd_list.append(diff_sliced_emd)
 
-            diff_kl_list.append(diff_kl)
-            diff_js_list.append(diff_js)
-            diff_hist_kl_list.append(diff_hist_kl)
-            diff_hist_js_list.append(diff_hist_js)
+            # diff_kl_list.append(diff_kl)
+            # diff_js_list.append(diff_js)
+            # diff_hist_kl_list.append(diff_hist_kl)
+            # diff_hist_js_list.append(diff_hist_js)
 
-            sum_list.append(summ)
+            # sum_list.append(summ)
 
-            has_pick_list.append(has_pick)
+            # has_pick_list.append(has_pick)
 
             output_right_list.append(output_right)
-            output_middle_list.append(output_middle)
+            # output_middle_list.append(output_middle)
 
-    with open('/data/rech/dingqian/data_das_ocean/output_right_10.npy', 'wb') as f:
+    # with open('/data/rech/dingqian/data_das_ocean/output_inference_right_10.npy', 'wb') as f:
+    #     np.save(f, output_right_list)
+    # with open('/data/rech/dingqian/data_das_ocean/output_inference_10.npy', 'wb') as f:
+    #     np.save(f, output_middle_list)
+
+    with open('/data/rech/dingqian/data_das/DAS/chao_new/output_inference_right_10.npy', 'wb') as f:
         np.save(f, output_right_list)
-    with open('/data/rech/dingqian/data_das_ocean/output_middle_10.npy', 'wb') as f:
+    with open('/data/rech/dingqian/data_das/DAS/chao_new/output_inference_10.npy', 'wb') as f:
         np.save(f, output_middle_list)
 
-    auc_diff = roc_auc_score(has_pick_list, diff_list)
-    auc_diff_abs = roc_auc_score(has_pick_list, diff_abs_list)
-    auc_emd = roc_auc_score(has_pick_list, diff_emd_list)
-    auc_sum = roc_auc_score(has_pick_list, sum_list)
-    auc_sliced_emd = roc_auc_score(has_pick_list, diff_sliced_emd_list)
-
-    auc_kl = roc_auc_score(has_pick_list, diff_kl_list)
-    auc_js = roc_auc_score(has_pick_list, diff_js_list)
-
-    auc_hist_kl = roc_auc_score(has_pick_list, np.nan_to_num(diff_hist_kl_list))
-    auc_hist_js = roc_auc_score(has_pick_list, np.nan_to_num(diff_hist_js_list))
-
-    print('AUC_DIFF: {}\nAUC_DIFF_ABS: {}\nAUC_EMD: {}\nAUC_SUM: {}\nAUC_SLICED_EMD: {}'.format(auc_diff, auc_diff_abs, auc_emd, auc_sum, auc_sliced_emd))
-    print('AUC_KL: {}\nAUC_JS: {}\nAUC_HIST_KL: {}\nAUC_HIST_JS: {}'.format(auc_kl, auc_js, auc_hist_kl, auc_hist_js))
-    # roc_auc_score(has_pick_list, diff_list)
     
+    
+    exit()
     embed()
 
     with open('/data/rech/dingqian/data_das/output_right_10.npy', 'wb') as f:
