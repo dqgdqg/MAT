@@ -341,6 +341,7 @@ def generate_tensors(
 
     output_right_list = []
     output_middle_list = []
+    output_right_stg1_list = []
     
     with torch.no_grad():
         for i, tensor in enumerate(tensors):
@@ -364,14 +365,15 @@ def generate_tensors(
 
             #### Right 
             z = torch.from_numpy(np.random.randn(1, G.z_dim)).to(device)
-            output_right = G(tensor, mask_right, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
+            output_right, ourput_right_stg1 = G(tensor, mask_right, z, label, truncation_psi=truncation_psi, noise_mode=noise_mode, return_stg1=True)
             output_right = output_right.squeeze().cpu().numpy()
+            ourput_right_stg1 = ourput_right_stg1.squeeze().cpu().numpy()
 
             input_right = tensor.squeeze().cpu().numpy()
 
-            numpy_to_image(input_right, os.path.join(outdir, 'input_right_{}.png'.format(i)))
-            numpy_to_image(output_right, os.path.join(outdir, 'output_right_{}.png'.format(i)))
-            numpy_to_image((output_right-input_right), os.path.join(outdir, 'diff_right_{}.png'.format(i)))
+            # numpy_to_image(input_right, os.path.join(outdir, 'input_right_{}.png'.format(i)))
+            # numpy_to_image(output_right, os.path.join(outdir, 'output_right_{}.png'.format(i)))
+            # numpy_to_image((output_right-input_right), os.path.join(outdir, 'diff_right_{}.png'.format(i)))
 
             #### Calculate metrics
             
@@ -402,18 +404,25 @@ def generate_tensors(
             # has_pick_list.append(has_pick)
 
             output_right_list.append(output_right)
+            output_right_stg1_list.append(ourput_right_stg1)
             # output_middle_list.append(output_middle)
 
+    ########### Ocean
     # with open('/data/rech/dingqian/data_das_ocean/output_inference_right_10.npy', 'wb') as f:
     #     np.save(f, output_right_list)
-    # with open('/data/rech/dingqian/data_das_ocean/output_inference_10.npy', 'wb') as f:
-    #     np.save(f, output_middle_list)
+    # with open('/data/rech/dingqian/data_das_ocean/output_inference_right_stg1_10.npy', 'wb') as f:
+    #     np.save(f, output_right_stg1_list)
 
-    with open('/data/rech/dingqian/data_das/DAS/chao_new/output_inference_right_10.npy', 'wb') as f:
+    ########### Chao_new 52
+    # with open('/data/rech/dingqian/data_das/DAS/chao_new/output_inference_right_10.npy', 'wb') as f:
+    #     np.save(f, output_right_list)
+    # with open('/data/rech/dingqian/data_das/DAS/chao_new/output_inference_right_stg1_10.npy', 'wb') as f:
+    #     np.save(f, output_right_stg1_list)
+
+    with open(f'{outdir}/output_inference_right_10.npy', 'wb') as f:
         np.save(f, output_right_list)
-    with open('/data/rech/dingqian/data_das/DAS/chao_new/output_inference_10.npy', 'wb') as f:
-        np.save(f, output_middle_list)
-
+    with open(f'{outdir}/output_inference_right_stg1_10.npy', 'wb') as f:
+        np.save(f, output_right_stg1_list)
     
     
     exit()
